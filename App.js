@@ -1,227 +1,263 @@
-import React from 'react';
-import { StyleSheet, Platform, Image, Text, View, ScrollView, AsyncStorage, Alert } from 'react-native';
+//Add these two imports
+import React from "react";
+import { View, Text, Platform, AsyncStorage, FlatList, StyleSheet } from "react-native";
+import firebase, { RemoteMessage } from 'react-native-firebase';
+import type, { Notification, NotificationOpen } from 'react-native-firebase';
 
-import firebase from 'react-native-firebase';
+//Inside App component
+/***
+* To check/ask for permission to reaceive the notifications.
+*/
 
 export default class App extends React.Component {
   constructor() {
     super();
-    this.state = {};
+    this.state = {
+      pushData: [{
+        _title:"name",
+        _data:"hello"
+      }],
+    };
   }
 
-  async sentData(title, data) {
-    const enabled = await firebase.messaging().hasPermission();
-    if (enabled) {
-      firebase
-        .messaging()
-        .getToken()
-        .then(fcmToken => {
-          if (fcmToken) {
-            console.log(fcmToken);
-            firebase
-              .database()
-              .ref("/users/" + Math.floor(Math.random() * Math.floor(1000)))
-              .set({
-                email: "nitish@gmail.com",
-                notification_token: fcmToken,
-                created_at: Date.now(),
-                title:title,
-                message:data
-              })
-              .then(res => {
-                console.log(res);
-              });
-          } else {
-            alert("user doesn't have a device token yet");
-          }
-        });
-    } else {
-      alert("no");
-    }
-  }
-
-
-  async componentDidMount() {
-  
-    this.checkPermission();
-    this.createNotificationListeners(); //add this line
-  }
-
-  async checkPermission() {
-    const enabled = await firebase.messaging().hasPermission();
-    if (enabled) {
-      this.getToken();
-    } else {
-      this.requestPermission();
-    }
-  }
-
-  //3
-  async getToken() {
-    let fcmToken = await AsyncStorage.getItem('fcmToken');
-    if (!fcmToken) {
-      fcmToken = await firebase.messaging().getToken();
-      if (fcmToken) {
-        // user has a device token
-        await AsyncStorage.setItem('fcmToken', fcmToken);
-      }
-    }
-  }
-
-  //2
-  async requestPermission() {
-    try {
-      await firebase.messaging().requestPermission();
-      // User has authorised
-      this.getToken();
-    } catch (error) {
-      // User has rejected permissions
-      console.log('permission rejected');
-    }
-  }
-
-
-  ////////////////////// Add these methods //////////////////////
-
-  //Remove listeners allocated in createNotificationListeners()
   componentWillUnmount() {
+    // this.onTokenRefreshListener();
+    this.messageListener();
+    this.notificationDisplayedListener();
     this.notificationListener();
     this.notificationOpenedListener();
+    console.log("state", this.state)
   }
 
-  async createNotificationListeners() {
-    /*
-    * Triggered when a particular notification has been received in foreground
-    * */
-    this.notificationListener = firebase.notifications().onNotification((notification) => {
-      const { title, body } = notification;
-      this.showAlert(title, body);
-    });
-
-    /*
-    * If your app is in background, you can listen for when a notification is clicked / tapped / opened as follows:
-    * */
-    this.notificationOpenedListener = firebase.notifications().onNotificationOpened((notificationOpen) => {
-      const { title, body } = notificationOpen.notification;
-      this.showAlert(title, body);
-    });
-
-    /*
-    * If your app is closed, you can check if it was opened by a notification being clicked / tapped / opened as follows:
-    * */
-    const notificationOpen = await firebase.notifications().getInitialNotification();
-    if (notificationOpen) {
-      const { title, body } = notificationOpen.notification;
-      this.showAlert(title, body);
+  async componentDidMount() {
+    console.log("===componentDidMount===");
+    if (Platform.OS == "android") {
+      if (Platform.Version >= 26) {
+        const channel = new firebase.notifications.Android.Channel('test-channel', 'Test Channel', firebase.notifications.Android.Importance.Max)
+          .setDescription('My apps test channel');
+        // Create the channel
+        firebase.notifications().android.createChannel(channel);
+      }
     }
-    /*
-    * Triggered for data only payload in foreground
-    * */
-    this.messageListener = firebase.messaging().onMessage((message) => {
-      //process data message
-      console.log(JSON.stringify(message));
+
+    this.chechPermissionForNotification();
+    //A message will trigger the onMessage listener when the application receives a message in the foreground.
+    this.messageListener = firebase.messaging().onMessage((message: RemoteMessage) => {
+      // Process your message as required
+      console.log("Message-", message.toString());
     });
+
+    this.notificationDisplayedListener = firebase.notifications().onNotificationDisplayed((notification: Notification) => {
+      console.log("===NOTIFICATION DISPLAYED===   onNotificationDisplayed");
+      console.log("===onNotificationDisplayed 1===");
+      // Process your notification as required
+      console.log("Notification1-- ", notification.title);
+      console.log("Notification1-- ", notification.body);
+      if (Platform.OS == "android") {
+        notification
+          .android.setChannelId('test-channel')
+          .android.setSmallIcon('ic_launcher');
+        this._addDataToList(notification);
+      }
+      this._addDataToList(notification);
+      // ANDROID: Remote notifications do not contain the channel ID. You will have to specify this manually if you'd like to re-display the notification.
+    });
+
+
+    this.notificationListener = firebase.notifications().onNotification((notification: Notification) => {
+      // Process your notification as required
+      console.log("===NOTIFICATION RECEIVED===  onNotification", notification);
+      console.log("===onNotificationDisplayed 2===");
+      console.log("Notification2-- ", notification.title);
+      console.log("Notification2-- ", notification.body);
+      // let json = JSON.stringify(notification)
+      // console.log("custom data", notification.data.name)
+      this._addDataToList(notification);
+      const notification2 = new firebase.notifications.Notification()
+        .setNotificationId('notificationId')
+        .setTitle('My notification title')
+        .setBody('My notification body')
+        .setData({
+          key1: 'value1',
+          key2: 'value2',
+        });
+      console.log("Channel", notification2)
+      // AsyncStorage.setItem("notification2", notification2)
+      if (Platform.OS == "android") {
+        notification
+          .android.setChannelId('test-channel')
+          .android.setSmallIcon('ic_launcher');
+      }
+      firebase.notifications().displayNotification(notification);
+      firebase.notifications().removeDeliveredNotification(notification.notificationId);
+    });
+
+    // when app in forground and clicked on notification
+    this.notificationOpenedListener = firebase.notifications().onNotificationOpened((notificationOpen: NotificationOpen) => {
+      // Get the action triggered by the notification being opened
+      const action = notificationOpen.action;
+      console.log("===NOTIFICATION OPENED/ CLICKED===  onNotificationOpened");
+      console.log("Notification clicked -- foreground");
+      // Get information about the notification that was opened
+      const notification: Notification = notificationOpen.notification;
+      console.log("for,msg", notification);
+    });
+
+    // when app in background and clicked on notification
+    firebase.notifications().getInitialNotification()
+      .then((notificationOpen: NotificationOpen) => {
+        console.log("===NOTIFICATION OPENED/ CLICKED===  getInitialNotification");
+        if (notificationOpen) {
+          // App was opened by a notification
+          // Get the action triggered by the notification being opened
+          const action = notificationOpen.action;
+          console.log("Notification clicked -- background", action, notificationOpen);
+          // Get information about the notification that was opened
+          const notification: Notification = notificationOpen.notification;
+          console.log("back,msg", notification);
+          this._addDataToList(notification);
+        }
+      });
+
+
   }
 
-  showAlert(title, body) {
+
+  chechPermissionForNotification() {
+    firebase.messaging().hasPermission()
+      .then(enabled => {
+        if (enabled) {
+          // user has permissions
+          console.log("==user has permissions==");
+        } else {
+          // user doesn't have permission
+          firebase.messaging().requestPermission()
+            .then(() => {
+              // User has authorised
+            })
+            .catch(error => {
+              // User has rejected permissions
+            });
+        }
+      });
+    firebase.messaging().getToken()
+      .then(fcmToken => {
+        if (fcmToken) {
+          console.log("Device Token-- ", fcmToken);
+        } else {
+          // user doesn't have a device token yet
+          console.log("Device Token-- Not found");
+        }
+      });
+  }
+
+
+  _addDataToList(data) {
+    console.log("view", data);
+    let array = this.state.pushData;
+    array.push(data);
     this.setState({
-      title: title,
-      body: body
-    })
-    this.sentData(title, body);
-    Alert.alert(
-      title, body,
-      [
-        { text: 'OK', onPress: () => console.log('OK Pressed') },
-      ],
-      { cancelable: false },
-    );
+      pushData: array
+    });
+    console.log("stateDate,===>", this.state);
   }
 
-
+  _renderItem = ({item}) => {
+    console.log("item", item)
+    return (
+      <View key={item.title}>
+        <Text style={styles.title}>{item._title}</Text>
+        <Text style={styles.message}>{item._body}</Text>
+      </View>
+    )
+  }
 
 
   render() {
-    console.log("", firebase);
-    console.log("state", this.state)
     return (
-      <ScrollView>
-        <View style={styles.container}>
-          <Image source={require('./assets/ReactNativeFirebase.png')} style={[styles.logo]} />
-          <Text style={styles.welcome}>
-            Welcome to {'\n'} React Native Firebase
-          </Text>
-          <Text style={styles.instructions}>
-            To get started, edit App.js
-          </Text>
-          {Platform.OS === 'ios' ? (
-            <Text style={styles.instructions}>
-              Press Cmd+R to reload,{'\n'}
-              Cmd+D or shake for dev menu
-            </Text>
-          ) : (
-              <Text style={styles.instructions}>
-                Double tap R on your keyboard to reload,{'\n'}
-                Cmd+M or shake for dev menu
-            </Text>
-            )}
-          <View style={styles.modules}>
-            <Text style={styles.modulesHeader}>The following Firebase modules are pre-installed:</Text>
-            {firebase.admob.nativeModuleExists && <Text style={styles.module}>admob()</Text>}
-            {firebase.analytics.nativeModuleExists && <Text style={styles.module}>analytics()</Text>}
-            {firebase.auth.nativeModuleExists && <Text style={styles.module}>auth()</Text>}
-            {firebase.config.nativeModuleExists && <Text style={styles.module}>config()</Text>}
-            {firebase.crashlytics.nativeModuleExists && <Text style={styles.module}>crashlytics()</Text>}
-            {firebase.database.nativeModuleExists && <Text style={styles.module}>database()</Text>}
-            {firebase.firestore.nativeModuleExists && <Text style={styles.module}>firestore()</Text>}
-            {firebase.functions.nativeModuleExists && <Text style={styles.module}>functions()</Text>}
-            {firebase.iid.nativeModuleExists && <Text style={styles.module}>iid()</Text>}
-            {firebase.links.nativeModuleExists && <Text style={styles.module}>links()</Text>}
-            {firebase.messaging.nativeModuleExists && <Text style={styles.module}>messaging()</Text>}
-            {firebase.notifications.nativeModuleExists && <Text style={styles.module}>notifications()</Text>}
-            {firebase.perf.nativeModuleExists && <Text style={styles.module}>perf()</Text>}
-            {firebase.storage.nativeModuleExists && <Text style={styles.module}>storage()</Text>}
-          </View>
+      <View>
+        <Text>Hello</Text>
+        <View style={styles.body}>
+          {(this.state.pushData.length != 0) && 
+          <FlatList
+            data={this.state.pushData}
+            renderItem={(item) => this._renderItem(item)}
+            keyextractor={(item, index) => index.tostring()}
+            extraData={this.state}
+          />
+          }
+          {(this.state.pushData.length == 0) &&
+            <View style={styles.noData}>
+              <Text style={styles.noDataText}>You don't have any push notification yet. Send some push to show it in the list</Text>
+            </View>}
+          {/* <LearnMoreLinks /> */}
         </View>
-      </ScrollView>
+      </View>
     );
   }
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F5FCFF',
+  scrollView: {
+    // backgroundColor: '#f'
   },
-  logo: {
-    height: 120,
-    marginBottom: 16,
-    marginTop: 64,
-    padding: 10,
-    width: 135,
+  listHeader: {
+    backgroundColor: '#eee',
+    color: "#222",
+    height: 44,
+    padding: 12
   },
-  welcome: {
-    fontSize: 20,
-    textAlign: 'center',
-    margin: 10,
+  title: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    paddingTop: 10
   },
-  instructions: {
-    textAlign: 'center',
-    color: '#333333',
-    marginBottom: 5,
+  noData: {
+    paddingVertical: 50,
   },
-  modules: {
-    margin: 20,
-  },
-  modulesHeader: {
-    fontSize: 16,
-    marginBottom: 8,
-  },
-  module: {
+  noDataText: {
     fontSize: 14,
-    marginTop: 4,
     textAlign: 'center',
-  }
+  },
+  message: {
+    fontSize: 14,
+    paddingBottom: 15,
+    borderBottomColor: "#ccc",
+    borderBottomWidth: 1
+  },
+  engine: {
+    position: 'absolute',
+    right: 0,
+  },
+  body: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+  },
+  sectionContainer: {
+    marginTop: 32,
+    paddingHorizontal: 24,
+  },
+  sectionTitle: {
+    fontSize: 24,
+    fontWeight: '600',
+    color:'#000',
+  },
+  sectionDescription: {
+    marginTop: 8,
+    fontSize: 18,
+    fontWeight: '400',
+    // color: Colors.dark,
+  },
+  highlight: {
+    fontWeight: '700',
+  },
+  footer: {
+    // color: Colors.dark,
+    fontSize: 12,
+    fontWeight: '600',
+    padding: 4,
+    paddingRight: 12,
+    textAlign: 'right',
+  },
 });
