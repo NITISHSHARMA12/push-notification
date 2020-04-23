@@ -60,15 +60,7 @@
   </receiver>
   <service android:name="io.invertase.firebase.notifications.RNFirebaseBackgroundNotificationActionsService"/>
 
-
-   <receiver android:enabled="true" android:exported="true"  android:name="com.evollu.react.fcm.FIRSystemBootEventReceiver">
-+          <intent-filter>
-+              <action android:name="android.intent.action.BOOT_COMPLETED"/>
-+              <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
-+              <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
-+              <category android:name="android.intent.category.DEFAULT" />
-+          </intent-filter>
-+      </receiver>
+<service android:name=".NotificationService" android:enabled="true" android:label="NotificationService" />
     </application>
     
     

@@ -10,5 +10,4 @@ import bgMessaging from './pushNotification/bgMessaging'
 
 AppRegistry.registerComponent(appName, () => App);
 
-AppRegistry.registerHeadlessTask('RNFirebaseBackgroundMessage', () => bgMessaging);
-AppRegistry.registerHeadlessTask('RNFirebaseBackgroundNotificationAction', bgMessaging);
+AppRegistry.registerHeadlessTask('NotificationService', bgMessaging);
